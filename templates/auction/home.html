@@ -1,0 +1,13 @@
+{% extends 'auction/base.html' %}
+{% block title %}BidSphere — Live Auctions{% endblock %}
+{% block content %}
+<section class="hero">
+  <div><div class="eyebrow">LIVE AUCTION MARKETPLACE</div><h1>Bid with confidence.<br><span>Track every credit.</span></h1><p>Timed auctions, maximum bidding, wallet reservations, refunds, and settlement—designed as a realistic virtual-credit marketplace.</p><div class="hero-actions"><a class="button" href="{% url 'auction_list' %}">Explore auctions</a><a class="button ghost" href="{% url 'create_auction' %}">Sell an item</a></div></div>
+  <div class="hero-card"><div class="mini-label">HOW BIDDING WORKS</div><div class="step"><b>01 · Set a maximum</b><span>Tell BidSphere the most you would pay.</span></div><div class="step"><b>02 · Automatic repricing</b><span>The visible bid only rises as needed.</span></div><div class="step"><b>03 · Clean settlement</b><span>Winner pays final price; unused reserve returns.</span></div></div>
+</section>
+<section class="section-head"><div><div class="eyebrow">LIVE NOW</div><h2>Ending soon</h2></div><a href="{% url 'auction_list' %}?status=active">View all →</a></section>
+<div class="grid four">{% for auction in active %}{% include 'auction/includes/auction_card.html' with auction=auction %}{% empty %}<div class="empty">No active auctions yet. Check back soon.</div>{% endfor %}</div>
+<section class="section-head top-gap"><div><div class="eyebrow">UP NEXT</div><h2>Scheduled</h2></div><a href="{% url 'auction_list' %}?status=upcoming">View upcoming →</a></section>
+<div class="grid three">{% for auction in upcoming %}{% include 'auction/includes/auction_card.html' with auction=auction %}{% empty %}<div class="empty">No upcoming auctions.</div>{% endfor %}</div>
+<section class="top-gap"><div class="section-head"><div><div class="eyebrow">DISCOVER</div><h2>Categories</h2></div></div><div class="chips">{% for c in categories %}<a class="chip" href="{% url 'auction_list' %}?category={{ c.slug }}&status=all">{{ c.name }}</a>{% endfor %}</div></section>
+{% endblock %}

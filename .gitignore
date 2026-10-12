@@ -1,0 +1,15 @@
+venv/
+.env
+.env.*
+!.env.example
+!.env.vercel.example
+__pycache__/
+*.py[cod]
+*$py.class
+db.sqlite3
+media/
+staticfiles/
+.vscode/
+.idea/
+.DS_Store
+.vercel/
