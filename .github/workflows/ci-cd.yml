@@ -107,8 +107,9 @@ jobs:
     name: Deploy Vercel Preview
     needs: test
     if: >-
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+        vars.ENABLE_VERCEL_DEPLOY == 'true' &&
+        github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # Put Vercel credentials in this protected environment, not repository secrets.
@@ -149,7 +150,10 @@ jobs:
   deploy-production:
     name: Deploy Vercel Production
     needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: >-
+        vars.ENABLE_VERCEL_DEPLOY == 'true' &&
+        github.event_name == 'push' &&
+        github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: production
