@@ -141,6 +141,11 @@ jobs:
       - name: Pull Preview environment settings
         run: vercel pull --yes --environment=preview --token="$VERCEL_TOKEN"
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        with:
+          version: "0.10.11"
+
       - name: Build Preview deployment
         run: vercel build --token="$VERCEL_TOKEN"
 
@@ -184,8 +189,13 @@ jobs:
       - name: Pull Production environment settings
         run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        with:
+          version: "0.10.11"
+
       - name: Build Production deployment
         run: vercel build --prod --token="$VERCEL_TOKEN"
-
+        
       - name: Deploy Production
         run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
