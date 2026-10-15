@@ -1,56 +1,61 @@
+<div align="center">
+
 # BidSphere
 
-**A Django auction marketplace built around proxy bidding, virtual-credit accounting, and scheduled settlement.**
+### A timed auction marketplace with proxy bidding and virtual-credit accounting
 
 [![CI/CD](https://github.com/Siddharthsharmasj/BidSphere/actions/workflows/ci-cd.yml/badge.svg?branch=main)](https://github.com/Siddharthsharmasj/BidSphere/actions/workflows/ci-cd.yml)
 ![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
-![Django](https://img.shields.io/badge/Backend-Django-092E20?logo=django&logoColor=white)
+![Django](https://img.shields.io/badge/Django-web%20application-092E20?logo=django&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL-4169E1?logo=postgresql&logoColor=white)
 
-[Live application](https://bidsphere-eight.vercel.app/) · [Source code](https://github.com/Siddharthsharmasj/BidSphere) · [CI/CD runs](https://github.com/Siddharthsharmasj/BidSphere/actions)
+[**Live application**](https://bidsphere-eight.vercel.app/) · [Source](https://github.com/Siddharthsharmasj/BidSphere) · [Workflow runs](https://github.com/Siddharthsharmasj/BidSphere/actions)
 
-BidSphere is a full-stack auction simulator. Users can list items, schedule auctions, submit maximum proxy bids, track bid activity, and review how virtual credits move through bidding and settlement. It uses virtual credits only; it does not process real-money payments.
+</div>
+
+BidSphere is a web-based auction application built with Django. Users can list items, place proxy bids, follow bidding activity, and see auctions progress from scheduled start through settlement. The application uses **virtual credits**, not real-money payments.
+
+The interesting engineering work is in the rules behind the interface: handling competing bids, reserving and releasing credits, extending auctions when qualifying late bids arrive, and finalizing expired auctions consistently.
+
+## At a glance
+
+| Area | What BidSphere does |
+|---|---|
+| Listings | Create item listings with category, image, starting price, increment, and scheduled times |
+| Proxy bidding | Let a bidder submit a maximum amount while the visible price follows the bidding rules |
+| Anti-sniping | Extend an auction by 120 seconds when a qualifying bid arrives during its final 120 seconds |
+| Wallet accounting | Track available virtual credits, reserved bids, released reservations, and settlement transactions |
+| Auction completion | Process expired auctions through Django settlement logic, including a protected scheduled endpoint |
+| Uploaded images | Store listing images in Supabase Storage through its S3-compatible interface |
+| Deployment | Run Django on Vercel, use Neon PostgreSQL, and deploy through a GitHub Actions workflow after CI succeeds |
 
 ## Product preview
 
 ![BidSphere homepage](docs/screenshots/homepage.png)
 
-The deployed interface is the source of truth for the current product experience. The diagrams below describe the main flows and deployment components.
+> The screenshot is from the deployed application. To keep this README useful, update it when the interface changes materially.
 
-## What it does
-
-- **Auction listings:** Create listings with a category, image, starting price, minimum increment, start time, and end time.
-- **Scheduled auction states:** Track upcoming, live, ended, and cancelled auctions.
-- **Proxy bidding:** A bidder supplies a maximum amount; the visible price advances according to the auction's bidding rules rather than jumping directly to every bidder's maximum.
-- **Anti-sniping:** A qualifying bid in the final 120 seconds extends the end time by 120 seconds, giving other bidders time to respond.
-- **Virtual wallet:** Track available credits, reserved bidding amounts, refunds, and final settlement transactions.
-- **Bid history and watchlists:** Follow auction activity and save items of interest.
-- **Notifications and seller tools:** The project also includes notification, seller analytics, and reporting/moderation functionality.
-- **Administration and APIs:** Django admin and the project's REST API support management and programmatic access. The codebase also includes Django Channels/WebSocket components; deployment-specific behavior should be verified in the target environment.
-- **Automated settlement:** A protected endpoint lets a scheduled request ask Django to process expired auctions without waiting for a user to open the site.
-
-## System architecture
+## How the system fits together
 
 ```mermaid
 flowchart LR
-    Browser[Browser] -->|HTTPS| Vercel[Vercel: Django application]
-    Vercel -->|SQL over TLS| Neon[(Neon PostgreSQL)]
-    Vercel -->|S3-compatible API| Storage[Supabase Storage]
-    GitHub[GitHub Actions] -->|Run checks and tests| Tests[CI test job]
-    Tests -->|Only after success| Deploy[Vercel production deployment]
-    Deploy --> Vercel
-    Scheduler[cron-job.org] -->|GET + Bearer token| Endpoint[/internal/cron/close-expired/]
-    Endpoint --> Vercel
+    Browser[Browser] -->|HTTPS requests| App[Vercel-hosted Django]
+    App -->|SQL over TLS| DB[(Neon PostgreSQL)]
+    App -->|S3-compatible API| Media[Supabase Storage]
+    Scheduler[cron-job.org] -->|GET + Bearer token| CronEndpoint[/Protected settlement endpoint/]
+    CronEndpoint --> App
+    Repo[GitHub repository] --> CI[GitHub Actions: checks and tests]
+    CI -->|Only after tests pass| Deploy[Vercel deployment]
+    Deploy --> App
 ```
 
-### Main components
-
 | Component | Responsibility |
-| --- | --- |
-| Django | Request handling, authentication, auction rules, bidding, wallet accounting, and settlement logic |
-| Neon PostgreSQL | Persistent application records, bids, auctions, and wallet transaction data |
-| Supabase Storage | Persistent uploaded images; the application uses its S3-compatible interface |
-| Vercel | Hosts the Django application |
-| GitHub Actions | Runs validation, Django checks, PostgreSQL-backed tests, migration checks, and dependency auditing before deployment |
+|---|---|
+| Django | Authentication, listing views, bidding rules, wallet operations, and settlement behavior |
+| Neon PostgreSQL | Persistent auctions, bids, user-related records, and wallet transaction data |
+| Supabase Storage | Persistent uploaded images; listing images intended for public viewing are served from a public bucket |
+| Vercel | Hosts the deployed web application |
+| GitHub Actions | Runs Django and dependency checks; deploys after the test job succeeds when deployment is enabled |
 | cron-job.org | Calls the protected expired-auction endpoint on a recurring schedule |
 
 ## Auction lifecycle
@@ -58,51 +63,53 @@ flowchart LR
 ```mermaid
 stateDiagram-v2
     [*] --> Upcoming
-    Upcoming --> Live: start time reached
-    Live --> Live: qualifying late bid / extend by 120 seconds
-    Live --> Settled: end time reached and settlement processed
-    Upcoming --> Cancelled: valid cancellation
-    Live --> Cancelled: valid cancellation
+    Upcoming --> Live: scheduled start reached
+    Live --> Live: qualifying late bid / add 120 seconds
+    Live --> Expired: scheduled end reached
+    Expired --> Settled: settlement processed
+    Upcoming --> Cancelled: permitted cancellation
+    Live --> Cancelled: permitted cancellation
     Settled --> [*]
     Cancelled --> [*]
 ```
 
-Settlement is a separate operation from merely reaching the end time. The scheduled job prompts the application to process eligible expired auctions; it should not be treated as a guarantee of execution at the exact second an auction expires.
+The end time and settlement are separate concerns: reaching the deadline makes an auction eligible for processing; the settlement logic records its outcome. The scheduler is intended to prompt that processing even when no user is visiting the site. A recurring schedule is not a guarantee that code executes at the exact end-time second, so both the endpoint response and application records should be monitored.
 
-## How proxy bidding and wallet reservations work
+## Proxy bidding and wallet accounting
 
-Each new user starts with **100,000 virtual credits** in the documented default setup. `Profile.virtual_credits` represents the available/spendable balance. When a maximum proxy bid is accepted, the maximum amount is reserved; it is not necessarily the final amount the winner pays.
+A bidder submits a maximum amount. That maximum is used by the proxy-bidding logic; it is not automatically the final price. BidSphere tracks available virtual credits separately from the amount reserved for active bidding.
 
-The intended accounting flow is:
+The expected accounting sequence is:
 
-1. Validate the auction state, bidder, bid limits, and available balance.
-2. Reserve the bidder's maximum amount and calculate the visible bid.
-3. If another bidder becomes the leader, release the previous leader's reservation as appropriate.
-4. When the auction is settled, credit the seller with the final visible price and return the winner's unused reservation.
-5. Record wallet movements in `WalletTransaction` so the balance changes can be inspected.
+1. Validate that the auction is eligible for bidding and that the bid satisfies the rules.
+2. Reserve the bidder's maximum amount and compute the current visible price and leader.
+3. When leadership changes, release the previous leader's reservation as required by the bidding rules.
+4. On settlement, record the outcome, debit the winning price according to the implemented rules, and release unused reserved credits.
+5. Keep wallet movements in transaction records so changes can be audited.
 
 ### Example
 
-This example illustrates the documented reservation model; amounts are virtual credits.
+Illustrative example using virtual credits and a starting price of 100 with an increment of 10:
 
-| Event | Bidder A | Bidder B | Visible bid |
-| --- | ---: | ---: | ---: |
-| Starting price | — | — | 100 |
-| A sets maximum 300 | 300 reserved | — | 100 |
-| B sets maximum 500 and overtakes A | A's 300 reservation is released | 500 reserved | 310 |
-| Auction settles | — | Pays 310 net; 190 unused credits returned | 310 |
+| Event | Bidder A | Bidder B | Visible price |
+|---|---:|---:|---:|
+| Auction starts | — | — | 100 |
+| A submits a maximum of 300 | 300 reserved | — | 100 |
+| B submits a maximum of 500 and takes the lead | A's reservation is released when no longer needed | 500 reserved | 310 |
+| Auction settles with B winning | — | Pays the final price; unused reservation is returned | 310 |
 
-Bid and wallet updates are designed to run transactionally, using database locking to reduce the chance of inconsistent results when requests overlap. The test suite should remain the source of truth for the exact boundary cases and supported invariants.
+The values above explain the reservation model; the source code and tests define the exact tie-breaking, validation, and settlement rules. Bid placement and wallet accounting are sensitive paths: changes to them should be accompanied by regression tests, particularly for overlapping requests and repeated settlement attempts.
 
-## Run locally
+## Local development
 
-### Prerequisites
+### Requirements
 
 - Python 3.12
 - Git
-- A database configuration suitable for local development
+- Dependencies listed in `requirements.txt`
+- A local database configuration suitable for development
 
-### Setup on Windows PowerShell
+### Windows PowerShell
 
 ```powershell
 git clone https://github.com/Siddharthsharmasj/BidSphere.git
@@ -112,7 +119,7 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-Review `.env.example` and configure local-only environment values for your setup. Do not copy production secrets into local files and never commit `.env` files. If PowerShell blocks the activation script, use the `.venv\Scripts\python.exe` form shown above rather than changing the machine-wide execution policy.
+Review `.env.example` and configure local-only values supported by the project. Do not copy production secrets into a development environment. If PowerShell blocks activation scripts, use the `.venv\Scripts\python.exe` commands directly; changing the machine-wide execution policy is not required for these commands.
 
 Apply migrations and create an administrator account:
 
@@ -122,42 +129,58 @@ Apply migrations and create an administrator account:
 .\.venv\Scripts\python.exe manage.py runserver
 ```
 
-Open `http://127.0.0.1:8000/` in a browser.
+Open `http://127.0.0.1:8000/`.
 
-### Optional development commands
+### Useful development commands
 
-Seed a local/demo database:
+Seed/reset a disposable local demo database:
 
 ```powershell
 .\.venv\Scripts\python.exe manage.py seed_demo --reset
 ```
 
-> **Warning:** `seed_demo --reset` is for a disposable local/demo database only. Never run it against production; it can reset demo data.
-
-Settle expired auctions manually during local development:
+Close expired auctions manually in local development:
 
 ```powershell
 .\.venv\Scripts\python.exe manage.py close_expired
 ```
 
-Audit wallet balances and ledger records:
+Audit wallet records:
 
 ```powershell
 .\.venv\Scripts\python.exe manage.py audit_wallets
 ```
 
-## API surface
+**Never run `seed_demo --reset` against production.** It is a development/demo operation and can reset data.
 
-The project README documents these auction endpoints:
+## Tests and continuous delivery
 
-| Method | Endpoint | Purpose |
-| --- | --- | --- |
+The workflow is defined in [`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml). Its test job uses a PostgreSQL 16 service and currently runs:
+
+- Dependency installation and `pip check`
+- Project structure and syntax validation
+- Django configuration and deployment-security checks
+- Static asset collection
+- Migration consistency checks (`makemigrations --check --dry-run`)
+- Django tests against PostgreSQL
+- Python dependency auditing with `pip-audit`
+
+When the repository variable `ENABLE_VERCEL_DEPLOY` is set to `true`, deployment jobs are gated on the test job passing. Production deployment is triggered by pushes to `main`; the preview job is limited to pull requests from the same repository. The workflow sends source to Vercel for its remote build.
+
+[View recent workflow runs](https://github.com/Siddharthsharmasj/BidSphere/actions).
+
+## API reference
+
+The current project documentation identifies these routes. Check the URL and view definitions before relying on them as a versioned public API.
+
+| Method | Route | Purpose |
+|---|---|---|
 | `GET` | `/api/auctions/` | List auctions |
 | `GET` | `/api/auctions/<id>/` | Retrieve an auction |
 | `GET` | `/api/auctions/<id>/bids/` | Retrieve bid history |
 | `POST` | `/api/auctions/<id>/bid/` | Submit a maximum bid; requires an authenticated session |
 
-Example request body for a bid:
+Example bid body:
 
 ```json
 {
@@ -165,77 +188,62 @@ Example request body for a bid:
 }
 ```
 
-Refer to the view/URL definitions for the full current contract, validation rules, and response schemas before building a client against these routes.
+The bid endpoint's accepted fields, validation errors, and response format are defined by the current implementation; treat this section as an orientation rather than a complete API specification.
 
-## Testing and CI/CD
+## Scheduled settlement
 
-The workflow at `.github/workflows/ci-cd.yml` runs on pushes and pull requests targeting `main`. It includes:
+The configured scheduler calls the protected route:
 
-- Python 3.12 setup and dependency installation
-- `pip check` and project structure/syntax validation
-- Django configuration and deployment-security checks
-- Static asset collection
-- Migration consistency check (`makemigrations --check --dry-run`)
-- Django tests against a PostgreSQL service
-- `pip-audit` dependency auditing
-
-When `ENABLE_VERCEL_DEPLOY` is set to `true`, the workflow's deployment jobs run only after the test job succeeds. Production deployment is gated to pushes to `main`; preview deployment is gated to pull requests from this repository. Vercel performs the deployment build remotely.
-
-Current workflow status: [view GitHub Actions](https://github.com/Siddharthsharmasj/BidSphere/actions).
-
-## Production configuration
-
-The deployed application uses separate services for the web process, relational data, uploaded images, and scheduled settlement.
-
-| Configuration | Purpose |
-| --- | --- |
-| `DJANGO_SECRET_KEY` | Django signing and security secret |
-| `DJANGO_DEBUG` | Must be disabled in production |
-| `DATABASE_URL` | PostgreSQL connection string for Neon |
-| `CRON_SECRET` | Bearer token protecting the expired-auction endpoint |
-| `DJANGO_SECURE_HSTS_SECONDS` | HSTS duration |
-| `AWS_STORAGE_BUCKET_NAME` | Supabase Storage bucket name (`bidsphere-media`) |
-| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | Server-side S3-compatible access credentials |
-| `AWS_S3_ENDPOINT_URL` / `AWS_S3_REGION_NAME` | Supabase S3 endpoint and region |
-| `AWS_S3_CUSTOM_DOMAIN` | Public base URL used to serve bucket images |
-
-Set these values in the hosting provider's environment-variable settings, not in source control. The S3-compatible secret key has access to storage resources; never expose it to client-side code. Only use a public bucket for images intended to be publicly viewable.
-
-### Scheduled settlement
-
-The deployment uses the protected endpoint:
-
-```text
+```http
 GET /internal/cron/close-expired/
 Authorization: Bearer <CRON_SECRET>
 ```
 
-The configured scheduler calls it periodically. The endpoint returns a JSON summary such as `checked`, `settled`, and `failed`. Monitor both the HTTP status and the response body; a successful HTTP response alone is not enough to prove that every settlement succeeded.
+The route returns a JSON summary such as `checked`, `settled`, and `failed`. Monitor the HTTP status **and** the response body: an HTTP `200` does not by itself prove that every eligible auction settled successfully. Keep `CRON_SECRET` in Vercel's environment settings and the scheduler's private header configuration; never place it in the URL, README, or source code.
 
-## Security notes
+## Configuration reference
 
-- This project uses virtual credits and is an auction simulator; it is not a real-money payment system.
-- Never commit `.env`, `.env.local`, `.vercel`, database URLs, S3 credentials, Vercel tokens, or Django/cron secrets.
-- Use different secrets for local development and production. Rotate any credential that was accidentally exposed.
-- Never run demo-reset commands against production data.
-- Test settlement, cancellation, refunds, and concurrent bidding before opening the application to a wider audience.
+Production values belong in the hosting provider's environment-variable settings, not in the repository.
 
-## Repository layout
+| Variable | Purpose |
+|---|---|
+| `DJANGO_SECRET_KEY` | Django signing and security secret |
+| `DJANGO_DEBUG` | Debug mode; disable in production |
+| `DATABASE_URL` | PostgreSQL connection string |
+| `CRON_SECRET` | Bearer token for the settlement endpoint |
+| `DJANGO_SECURE_HSTS_SECONDS` | HSTS duration |
+| `AWS_STORAGE_BUCKET_NAME` | Supabase bucket name (`bidsphere-media`) |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | Server-side S3-compatible storage credentials |
+| `AWS_S3_ENDPOINT_URL` / `AWS_S3_REGION_NAME` | Supabase S3-compatible endpoint and region |
+| `AWS_S3_CUSTOM_DOMAIN` | Public base URL used to serve public bucket images |
+
+Only store public-facing images in the public bucket. Do not use public object storage for private documents or secrets.
+
+## Security and operational notes
+
+- BidSphere uses virtual credits; it does not process real-money payments.
+- Never commit `.env`, `.env.local`, `.vercel`, database URLs, Vercel tokens, storage credentials, or Django/cron secrets.
+- Use separate development and production credentials. Rotate any value that may have been exposed.
+- Do not run demo reset commands against production.
+- Test bidding, cancellation, wallet releases, settlement retries, and concurrent bid requests before inviting a broader audience.
+- Review scheduler execution history and investigate non-zero settlement failures.
+
+## Repository map
 
 ```text
 .
-├── auction/                 # Auction, bidding, wallet, and related app code
-├── bidsphere/               # Django project configuration and URL routing
-├── docs/screenshots/        # Product screenshots used in documentation
-├── .env.example             # Local environment template
-├── .env.vercel.example      # Hosting environment template
-├── .github/workflows/       # CI/CD workflow
+├── auction/                  # Auction and related application logic
+├── bidsphere/                # Django project settings and URL routing
+├── docs/screenshots/         # README screenshots
+├── .github/workflows/        # CI/CD workflow
+├── .env.example              # Local environment template
+├── .env.vercel.example       # Hosting environment template
 ├── manage.py
 ├── requirements.txt
 ├── vercel.json
 └── README.md
 ```
 
-## Notes for contributors
+## Contributing
 
-Keep changes focused and testable. For changes to bidding, wallet accounting, anti-sniping, or settlement, add or update regression tests alongside the implementation. Run the relevant tests locally and make sure the GitHub Actions workflow passes before merging to `main`.
+Keep changes focused and add regression tests for changes to bidding, wallet accounting, anti-sniping, or settlement. Run the relevant tests locally, inspect the GitHub Actions result, and confirm the production behavior before treating a change as complete.
