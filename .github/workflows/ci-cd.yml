@@ -19,6 +19,7 @@ jobs:
     name: Validate and test Django
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
     services:
       postgres:
         image: postgres:16
@@ -33,10 +34,12 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+
     env:
       DJANGO_DEBUG: "1"
       DJANGO_SECRET_KEY: "ci-only-not-a-production-secret"
       DATABASE_URL: "postgresql://bidsphere:bidsphere-ci-only@127.0.0.1:5432/bidsphere_test"
+
     steps:
       - name: Check out source
         uses: actions/checkout@v7
@@ -73,6 +76,7 @@ jobs:
           import django
           django.setup()
           from django.conf import settings
+
           assert settings.DEBUG is False
           assert settings.DATABASES["default"]["ENGINE"] == "django.db.backends.postgresql"
           assert settings.SECURE_SSL_REDIRECT is True
@@ -80,7 +84,8 @@ jobs:
           assert settings.SESSION_COOKIE_SECURE is True
           assert settings.CSRF_COOKIE_SECURE is True
           assert ".vercel.app" in settings.ALLOWED_HOSTS
-          print("Production settings smoke check passed (no live database connection attempted).")
+
+          print("Production settings smoke check passed.")
           PY
 
       - name: Check Django deployment security settings
@@ -107,17 +112,19 @@ jobs:
     name: Deploy Vercel Preview
     needs: test
     if: >-
-        vars.ENABLE_VERCEL_DEPLOY == 'true' &&
-        github.event_name == 'pull_request' &&
-        github.event.pull_request.head.repo.full_name == github.repository
+      vars.ENABLE_VERCEL_DEPLOY == 'true' &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # Put Vercel credentials in this protected environment, not repository secrets.
     environment: preview
+
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
     steps:
       - name: Check out source
         uses: actions/checkout@v7
@@ -131,6 +138,7 @@ jobs:
         run: npm install --global vercel@latest
 
       - name: Link Vercel project metadata
+        shell: bash
         run: |
           test -n "$VERCEL_TOKEN" || (echo "Missing GitHub Actions secret: VERCEL_TOKEN" && exit 1)
           test -n "$VERCEL_ORG_ID" || (echo "Missing GitHub Actions secret: VERCEL_ORG_ID" && exit 1)
@@ -138,34 +146,26 @@ jobs:
           mkdir -p .vercel
           printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
 
-      - name: Pull Preview environment settings
-        run: vercel pull --yes --environment=preview --token="$VERCEL_TOKEN"
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
-        with:
-          version: "0.10.11"
-
-      - name: Build Preview deployment
-        run: vercel build --token="$VERCEL_TOKEN"
-
-      - name: Deploy Preview
-        run: vercel deploy --prebuilt --token="$VERCEL_TOKEN"
+      - name: Deploy Preview on Vercel
+        run: vercel deploy --yes --token="$VERCEL_TOKEN"
 
   deploy-production:
     name: Deploy Vercel Production
     needs: test
     if: >-
-        vars.ENABLE_VERCEL_DEPLOY == 'true' &&
-        github.event_name == 'push' &&
-        github.ref == 'refs/heads/main'
+      vars.ENABLE_VERCEL_DEPLOY == 'true' &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main'
+
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: production
+
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
     steps:
       - name: Check out source
         uses: actions/checkout@v7
@@ -179,6 +179,7 @@ jobs:
         run: npm install --global vercel@latest
 
       - name: Link Vercel project metadata
+        shell: bash
         run: |
           test -n "$VERCEL_TOKEN" || (echo "Missing GitHub Actions secret: VERCEL_TOKEN" && exit 1)
           test -n "$VERCEL_ORG_ID" || (echo "Missing GitHub Actions secret: VERCEL_ORG_ID" && exit 1)
@@ -186,16 +187,5 @@ jobs:
           mkdir -p .vercel
           printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
 
-      - name: Pull Production environment settings
-        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
-        with:
-          version: "0.10.11"
-
-      - name: Build Production deployment
-        run: vercel build --prod --token="$VERCEL_TOKEN"
-        
-      - name: Deploy Production
-        run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+      - name: Deploy Production on Vercel
+        run: vercel deploy --yes --prod --token="$VERCEL_TOKEN"
